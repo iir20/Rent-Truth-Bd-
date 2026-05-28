@@ -1,0 +1,8 @@
+{
+  "name": "Rent Truth BD",
+  "description": "A verified rental ecosystem for Bangladesh solving broker scams, fake listings, and overpriced rentals with AI moderation, transparency ratings, roommate matching, and advisor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
