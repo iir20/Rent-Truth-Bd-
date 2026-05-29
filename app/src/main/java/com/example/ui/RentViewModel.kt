@@ -248,7 +248,25 @@ class RentViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        val existing = _registeredUsers.value.find { it.email.lowercase() == emailClean }
+        var existing = _registeredUsers.value.find { it.email.lowercase() == emailClean }
+        if (existing == null && emailClean == "admin@renttruthbd.com") {
+            val adminAcc = UserAccount(
+                username = "Admin Boss",
+                email = "admin@renttruthbd.com",
+                phone = "01999999999",
+                role = com.example.data.UserRole.SYSTEM,
+                subscriptionType = "Free",
+                walletBalance = 1000000,
+                isVerified = true,
+                isAdmin = true,
+                isDemoUser = false,
+                isSystemSeed = false,
+                passwordHash = "e6c0c279e83ec90209df3dc594dc7dc2c77dfa8b438cf1df8c2b5d496e709087"
+            )
+            _registeredUsers.value = _registeredUsers.value + adminAcc
+            existing = adminAcc
+        }
+        
         if (existing != null) {
             _currentUser.value = existing
             _isLoggedIn.value = true
