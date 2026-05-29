@@ -25,6 +25,13 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
 
+    - name: Force Clean Corrupted Caches
+      run: |
+        rm -rf ~/.gradle/caches
+        rm -rf ~/.gradle/kotlin
+        rm -rf app/build
+        rm -rf .gradle
+
     - name: Run Unit & Quality Assertion Tests
       env:
         JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
