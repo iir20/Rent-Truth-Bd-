@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -1291,7 +1292,7 @@ fun RentTruthApp(
                         }
                     }
 
-                    Divider(color = GreyText.copy(0.15f))
+                    HorizontalDivider(color = GreyText.copy(0.15f))
 
                     // Delivery Preferences Routing Center
                     Text("📡 Multiplex Gateway Delivery Routing:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AccentTeal)
@@ -2990,7 +2991,7 @@ fun ListingDetailView(
     ) {
         item {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = LightText)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = LightText)
             }
         }
 
@@ -4122,7 +4123,7 @@ fun AccountCenterView(
                                             }
 
                                             Spacer(Modifier.height(10.dp))
-                                            Divider(color = GreyText.copy(0.15f))
+                                            HorizontalDivider(color = GreyText.copy(0.15f))
                                             Spacer(Modifier.height(10.dp))
 
                                             var newTenantNameInput by remember { mutableStateOf("") }
@@ -6530,7 +6531,7 @@ fun ChatHubView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = { viewModel.selectChannel(null) }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = LightText)
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = LightText)
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(openCh.partnerName, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
