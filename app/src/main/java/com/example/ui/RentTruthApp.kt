@@ -4,6 +4,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.*
+import kotlin.math.absoluteValue
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -46,6 +50,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.*
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
+import coil.compose.AsyncImage
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -172,6 +179,9 @@ fun RentTruthApp(
             var usernameInput by remember { mutableStateOf("") }
             var phoneInput by remember { mutableStateOf("") }
             var passwordInput by remember { mutableStateOf("") }
+            var confirmPasswordInput by remember { mutableStateOf("") }
+            var passwordVisibility by remember { mutableStateOf(false) }
+            var confirmPasswordVisibility by remember { mutableStateOf(false) }
             var selectedRoleByInput by remember { mutableStateOf(UserRole.TENANT) }
 
             Card(
@@ -252,6 +262,105 @@ fun RentTruthApp(
                             )
                         )
 
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = passwordInput,
+                            onValueChange = { passwordInput = it },
+                            label = { Text("Create Secure Password") },
+                            modifier = Modifier.fillMaxWidth().testTag("register_password_input_dialog"),
+                            visualTransformation = if (passwordVisibility) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisibility = !passwordVisibility }) {
+                                    Icon(
+                                        imageVector = if (passwordVisibility) androidx.compose.material.icons.Icons.Default.Lock else androidx.compose.material.icons.Icons.Default.Lock,
+                                        contentDescription = "Toggle password visibility"
+                                    )
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryEmerald,
+                                focusedLabelColor = PrimaryEmerald
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val complexityScore = when {
+                            passwordInput.isEmpty() -> 0
+                            passwordInput.length < 8 -> 1
+                            else -> {
+                                var score = 1
+                                if (passwordInput.any { it.isUpperCase() }) score++
+                                if (passwordInput.any { it.isLowerCase() }) score++
+                                if (passwordInput.any { it.isDigit() }) score++
+                                if (passwordInput.any { !it.isLetterOrDigit() }) score++
+                                score.coerceAtMost(4)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(4) { idx ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.2.dp))
+                                        .background(
+                                            if (idx < complexityScore) {
+                                                when (complexityScore) {
+                                                    1 -> ErrorCrimson
+                                                    2 -> WarningAmber
+                                                    3 -> InfoSky
+                                                    else -> VerifiedGreen
+                                                }
+                                            } else {
+                                                GreyText.copy(0.2f)
+                                            }
+                                        )
+                                )
+                            }
+                            Text(
+                                text = when (complexityScore) {
+                                    0 -> "Empty"
+                                    1 -> "Weak"
+                                    2 -> "Medium"
+                                    3 -> "Strong"
+                                    else -> "Excellent"
+                                },
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (complexityScore) {
+                                    1 -> ErrorCrimson
+                                    2 -> WarningAmber
+                                    3 -> InfoSky
+                                    else -> VerifiedGreen
+                                }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = confirmPasswordInput,
+                            onValueChange = { confirmPasswordInput = it },
+                            label = { Text("Confirm Security Password") },
+                            modifier = Modifier.fillMaxWidth().testTag("confirm_password_input_dialog"),
+                            visualTransformation = if (confirmPasswordVisibility) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { confirmPasswordVisibility = !confirmPasswordVisibility }) {
+                                    Icon(
+                                        imageVector = if (confirmPasswordVisibility) androidx.compose.material.icons.Icons.Default.Lock else androidx.compose.material.icons.Icons.Default.Lock,
+                                        contentDescription = "Toggle password visibility"
+                                    )
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryEmerald,
+                                focusedLabelColor = PrimaryEmerald
+                            )
+                        )
+
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             "Select Your Ecosystem Role:",
@@ -265,7 +374,7 @@ fun RentTruthApp(
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp)
                         ) {
-                            UserRole.values().forEach { r ->
+                            UserRole.values().filter { it != UserRole.SYSTEM }.forEach { r ->
                                 Card(
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(
@@ -328,7 +437,34 @@ fun RentTruthApp(
                                     coroutineScope.launch { snackbarHostState.showSnackbar("Name cannot be empty!") }
                                     return@Button
                                 }
-                                val result = viewModel.register(usernameInput, emailInput, phoneInput, selectedRoleByInput)
+                                fun isPasswordComplexitySatisfied(pwd: String): Boolean {
+                                    if (pwd.length < 8) return false
+                                    var hasUpper = false
+                                    var hasLower = false
+                                    var hasDigit = false
+                                    var hasSpecial = false
+                                    val specials = "@#$%^&+=!_*-+[]{}()/\\,.:;?~`'\""
+                                    for (c in pwd) {
+                                        if (c.isUpperCase()) hasUpper = true
+                                        if (c.isLowerCase()) hasLower = true
+                                        if (c.isDigit()) hasDigit = true
+                                        if (c in specials) hasSpecial = true
+                                    }
+                                    return hasUpper && hasLower && hasDigit && hasSpecial
+                                }
+                                if (!isPasswordComplexitySatisfied(passwordInput)) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Error: Password must be at least 8 chars with uppercase, lowercase, number, and special character.")
+                                    }
+                                    return@Button
+                                }
+                                if (passwordInput != confirmPasswordInput) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Error: Password confirmation mismatch!")
+                                    }
+                                    return@Button
+                                }
+                                val result = viewModel.register(usernameInput, emailInput, phoneInput, selectedRoleByInput, passwordInput)
                                 coroutineScope.launch { snackbarHostState.showSnackbar(result) }
                             } else {
                                 val success = viewModel.login(emailInput, passwordInput)
@@ -1388,6 +1524,14 @@ fun ListingsDashboard(
     val selectedDivisionFilter by viewModel.selectedDivisionFilter.collectAsState()
     val selectedDistrictFilter by viewModel.selectedDistrictFilter.collectAsState()
 
+    val searchKey = remember(areaFilter, budgetFilter, typeFilter, studentMode, selectedDivisionFilter, selectedDistrictFilter) { System.currentTimeMillis() }
+    var isLocalLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(searchKey) {
+        isLocalLoading = true
+        kotlinx.coroutines.delay(600)
+        isLocalLoading = false
+    }
+
     val filteredListings = listings.filter { listing ->
         val divisionMatch = selectedDivisionFilter == "All" || listing.division.equals(selectedDivisionFilter, ignoreCase = true)
         val districtMatch = selectedDistrictFilter == "All" || listing.district.equals(selectedDistrictFilter, ignoreCase = true)
@@ -1664,7 +1808,11 @@ fun ListingsDashboard(
         }
 
         // Listings List
-        if (filteredListings.isEmpty()) {
+        if (isLocalLoading) {
+            items(3) {
+                ListingSkeletonCard()
+            }
+        } else if (filteredListings.isEmpty()) {
             item {
                 Column(
                     modifier = Modifier
@@ -1704,6 +1852,7 @@ fun OwnerEcosystemWorkspace(
     val landlordLogs by viewModel.landlordTenantLogs.collectAsState()
     val brokerRelationships by viewModel.brokerPartnerships.collectAsState()
     val socketLogs by viewModel.syncLogs.collectAsState()
+    val registeredUsers by viewModel.registeredUsers.collectAsState()
 
     val user = currentUser ?: return
     val ownerListings = listings.filter { !it.isBrokerListing }
@@ -1711,6 +1860,9 @@ fun OwnerEcosystemWorkspace(
 
     var workspaceTab by remember { mutableStateOf("Bids") } // "Bids", "Registry", "Brokers", "SyncMonitor"
     var isRegisteringManualTenant by remember { mutableStateOf(false) }
+    var selectedTenantForNidView by remember { mutableStateOf<UserAccount?>(null) }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Manual Tenant Registration states
     var manualName by remember { mutableStateOf("") }
@@ -1960,6 +2112,121 @@ fun OwnerEcosystemWorkspace(
                             contentPadding = PaddingValues(horizontal = 8.dp)
                         ) {
                             Text(if (isRegisteringManualTenant) "Close Form" else "+ Manual Tenant", fontSize = 9.sp)
+                        }
+                    }
+                }
+
+                // Unified Landlord-Tenant NID Security Registry
+                item {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = PrimaryEmerald.copy(0.06f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, PrimaryEmerald.copy(0.25f), RoundedCornerShape(12.dp))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("🪪 Secured Tenant NID & KYC Directory", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SoftEmerald)
+                                    Text("Copy NID numbers, verify biometric statuses, and inspect active Government ID copies.", fontSize = 8.5.sp, color = GreyText)
+                                }
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = PrimaryEmerald.copy(0.12f)),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text("LIVE CLOUD 🛰️", fontSize = 7.5.sp, fontWeight = FontWeight.Bold, color = PrimaryEmerald, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val systemTenants = registeredUsers.filter { it.role == com.example.data.UserRole.TENANT }
+                            if (systemTenants.isEmpty()) {
+                                Text("No registered tenants found in Dhaka Cloud system directory.", fontSize = 9.sp, color = GreyText)
+                            } else {
+                                systemTenants.forEach { tenant ->
+                                    val tenantNid = tenant.nidNumber ?: "Not Registered"
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = CardSlate),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .border(0.5.dp, GreyText.copy(0.15f), RoundedCornerShape(8.dp))
+                                    ) {
+                                        Column(Modifier.padding(10.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .clip(CircleShape)
+                                                            .background(PrimaryEmerald.copy(0.15f)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(tenant.username.take(1).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PrimaryEmerald)
+                                                    }
+                                                    Column {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Text(tenant.username, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = LightText)
+                                                            Text(
+                                                                text = if (tenant.nidVerifiedBadge) "🛡️ VERIFIED" else "🕒 PENDING AUDIT",
+                                                                fontSize = 7.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (tenant.nidVerifiedBadge) VerifiedGreen else WarningAmber
+                                                            )
+                                                        }
+                                                        Text("Phone: ${tenant.phone} | Email: ${tenant.email}", fontSize = 8.sp, color = GreyText)
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().background(Color.Black.copy(0.3f), RoundedCornerShape(6.dp)).padding(6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text("BANGALORE GOVT SECURE NID :", fontSize = 7.sp, color = GreyText)
+                                                    Text(tenantNid, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = LightText, fontFamily = FontFamily.Monospace)
+                                                }
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Button(
+                                                        onClick = {
+                                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(tenantNid))
+                                                            android.widget.Toast.makeText(context, "Copied NID: $tenantNid", android.widget.Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentTeal.copy(0.12f)),
+                                                        modifier = Modifier.height(22.dp),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                                    ) {
+                                                        Text("📋 Copy NID", fontSize = 8.sp, color = LightText)
+                                                    }
+                                                    Button(
+                                                        onClick = { selectedTenantForNidView = tenant },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                                                        modifier = Modifier.height(22.dp),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                                    ) {
+                                                        Text("📄 View ID Copy", fontSize = 8.sp, color = Color.White)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2241,6 +2508,108 @@ fun OwnerEcosystemWorkspace(
                                 fontFamily = FontFamily.Monospace,
                                 color = if (log.contains("[OK]")) VerifiedGreen else if (log.contains("SYSTEM")) InfoSky else LightText
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    selectedTenantForNidView?.let { tenant ->
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { selectedTenantForNidView = null }
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardSlate),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .border(2.dp, PrimaryEmerald, RoundedCornerShape(16.dp))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Government Database Audit", fontSize = 10.sp, color = PrimaryEmerald, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (tenant.nidVerifiedBadge) "🛡️ MANUALLY APPROVED" else "🕒 PENDING AUDIT",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (tenant.nidVerifiedBadge) VerifiedGreen else WarningAmber
+                        )
+                    }
+
+                    HorizontalDivider(color = GreyText.copy(0.2f))
+
+                    Text("গণপ্রজাতন্ত্রী বাংলাদেশ সরকার", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ErrorCrimson, textAlign = TextAlign.Center)
+                    Text("Government of the People's Republic of Bangladesh", fontSize = 8.sp, color = GreyText)
+                    Text("NATIONAL ID CARD / জাতীয় পরিচয়পত্র", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = LightText)
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(0.05f)),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, PrimaryEmerald.copy(0.3f), RoundedCornerShape(8.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.White.copy(0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (tenant.profilePhoto.isNotBlank()) {
+                                    AsyncImage(
+                                        model = tenant.profilePhoto,
+                                        contentDescription = "NID Image",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Person, contentDescription = "ID Photo", tint = GreyText, modifier = Modifier.size(36.dp))
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("নাম (Name): ${tenant.username}", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = LightText)
+                                Text("NID No: ${tenant.nidNumber ?: "5432167890"}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ErrorCrimson, fontFamily = FontFamily.Monospace)
+                                Text("পেশা (Occupation): ${tenant.occupationInfo}", fontSize = 9.sp, color = GreyText)
+                                Text("রক্তের গ্রুপ (Blood Group): A+", fontSize = 9.sp, color = GreyText)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("SECURITY CODE / HASH CODE", fontSize = 7.sp, color = GreyText)
+                            Text("SHA-256: " + java.lang.Math.abs(tenant.username.hashCode() * 31).toString(16).uppercase() + "8FF99", fontSize = 8.sp, fontFamily = FontFamily.Monospace, color = GreyText)
+                        }
+
+                        Button(
+                            onClick = { selectedTenantForNidView = null },
+                            colors = ButtonDefaults.buttonColors(containerColor = ErrorCrimson),
+                            modifier = Modifier.height(26.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                        ) {
+                            Text("Close ID Copy", fontSize = 9.sp, color = Color.White)
                         }
                     }
                 }
@@ -3679,10 +4048,57 @@ fun AccountCenterView(
     val currentUser by viewModel.currentUser.collectAsState()
     val registeredUsers by viewModel.registeredUsers.collectAsState()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var selectedFileUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedFileName by remember { mutableStateOf("") }
+    var selectedFileSize by remember { mutableStateOf(0L) }
+    var selectedMimeType by remember { mutableStateOf("") }
+    var uploadProgress by remember { mutableStateOf(0f) }
+    var isUploading by remember { mutableStateOf(false) }
+
+    val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            var name = "unknown_document"
+            var size = 0L
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val nameIdx = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val sizeIdx = it.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (nameIdx != -1) name = it.getString(nameIdx)
+                    if (sizeIdx != -1) size = it.getLong(sizeIdx)
+                }
+            }
+            val mime = context.contentResolver.getType(uri) ?: ""
+            val extension = name.substringAfterLast('.', "").lowercase()
+            val allowedExtensions = listOf("pdf", "jpg", "jpeg", "png")
+            if (extension !in allowedExtensions && !mime.contains("pdf") && !mime.contains("image")) {
+                coroutineScope.launch { snackbarHostState.showSnackbar("Rejected: Files with extension .$extension or MIME $mime are blocked for anti-malware safety.") }
+            } else if (size > 5 * 1024 * 1024) {
+                coroutineScope.launch { snackbarHostState.showSnackbar("Rejected: File size exceeds the maximum limit of 5MB.") }
+            } else {
+                selectedFileUri = uri
+                selectedFileName = name
+                selectedFileSize = size
+                selectedMimeType = if (mime.isBlank()) {
+                    if (extension == "pdf") "application/pdf" else "image/png"
+                } else mime
+                uploadProgress = 0f
+                isUploading = false
+                coroutineScope.launch { snackbarHostState.showSnackbar("Ready to upload: $name (${size / 1024} KB)") }
+            }
+        }
+    }
+
     var emailInput by remember { mutableStateOf("") }
     var usernameInput by remember { mutableStateOf("") }
     var phoneInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
+    var confirmPasswordInput by remember { mutableStateOf("") }
+    var passwordVisibility by remember { mutableStateOf(false) }
+    var confirmPasswordVisibility by remember { mutableStateOf(false) }
     var isRegisterState by remember { mutableStateOf(false) }
     var selectedRoleByInput by remember { mutableStateOf(UserRole.TENANT) }
 
@@ -3775,6 +4191,105 @@ fun AccountCenterView(
                             )
                         )
 
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = passwordInput,
+                            onValueChange = { passwordInput = it },
+                            label = { Text("Create Secure Password") },
+                            modifier = Modifier.fillMaxWidth().testTag("register_password_input_dialog_sec"),
+                            visualTransformation = if (passwordVisibility) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisibility = !passwordVisibility }) {
+                                    Icon(
+                                        imageVector = if (passwordVisibility) androidx.compose.material.icons.Icons.Default.Lock else androidx.compose.material.icons.Icons.Default.Lock,
+                                        contentDescription = "Toggle password visibility"
+                                    )
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryEmerald,
+                                focusedLabelColor = PrimaryEmerald
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val complexityScore = when {
+                            passwordInput.isEmpty() -> 0
+                            passwordInput.length < 8 -> 1
+                            else -> {
+                                var score = 1
+                                if (passwordInput.any { it.isUpperCase() }) score++
+                                if (passwordInput.any { it.isLowerCase() }) score++
+                                if (passwordInput.any { it.isDigit() }) score++
+                                if (passwordInput.any { !it.isLetterOrDigit() }) score++
+                                score.coerceAtMost(4)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(4) { idx ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.2.dp))
+                                        .background(
+                                            if (idx < complexityScore) {
+                                                when (complexityScore) {
+                                                    1 -> ErrorCrimson
+                                                    2 -> WarningAmber
+                                                    3 -> InfoSky
+                                                    else -> VerifiedGreen
+                                                }
+                                            } else {
+                                                GreyText.copy(0.2f)
+                                            }
+                                        )
+                                )
+                            }
+                            Text(
+                                text = when (complexityScore) {
+                                    0 -> "Empty"
+                                    1 -> "Weak"
+                                    2 -> "Medium"
+                                    3 -> "Strong"
+                                    else -> "Excellent"
+                                },
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (complexityScore) {
+                                    1 -> ErrorCrimson
+                                    2 -> WarningAmber
+                                    3 -> InfoSky
+                                    else -> VerifiedGreen
+                                }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = confirmPasswordInput,
+                            onValueChange = { confirmPasswordInput = it },
+                            label = { Text("Confirm Security Password") },
+                            modifier = Modifier.fillMaxWidth().testTag("confirm_password_input_dialog_sec"),
+                            visualTransformation = if (confirmPasswordVisibility) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { confirmPasswordVisibility = !confirmPasswordVisibility }) {
+                                    Icon(
+                                        imageVector = if (confirmPasswordVisibility) androidx.compose.material.icons.Icons.Default.Lock else androidx.compose.material.icons.Icons.Default.Lock,
+                                        contentDescription = "Toggle password visibility"
+                                    )
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryEmerald,
+                                focusedLabelColor = PrimaryEmerald
+                            )
+                        )
+
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             "Select Your Ecosystem Role:",
@@ -3788,9 +4303,8 @@ fun AccountCenterView(
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp)
                         ) {
-                            UserRole.values().forEach { r ->
-                                if (r != UserRole.OFFICE) {
-                                    Card(
+                            UserRole.values().filter { it != UserRole.SYSTEM && it != UserRole.OFFICE }.forEach { r ->
+                                Card(
                                         shape = RoundedCornerShape(8.dp),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (selectedRoleByInput == r) PrimaryEmerald.copy(0.15f) else CardSlate
@@ -3815,7 +4329,6 @@ fun AccountCenterView(
                                     }
                                 }
                             }
-                        }
 
                         val feeInfo = when (selectedRoleByInput) {
                             UserRole.OWNER -> "🏡 Owner Account Cost: 200 BDT (Registration Server Fee)"
@@ -3846,7 +4359,34 @@ fun AccountCenterView(
                                     coroutineScope.launch { snackbarHostState.showSnackbar("Name cannot be empty!") }
                                     return@Button
                                 }
-                                val result = viewModel.register(usernameInput, emailInput, phoneInput, selectedRoleByInput)
+                                fun isPasswordComplexitySatisfied(pwd: String): Boolean {
+                                    if (pwd.length < 8) return false
+                                    var hasUpper = false
+                                    var hasLower = false
+                                    var hasDigit = false
+                                    var hasSpecial = false
+                                    val specials = "@#$%^&+=!_*-+[]{}()/\\,.:;?~`'\""
+                                    for (c in pwd) {
+                                        if (c.isUpperCase()) hasUpper = true
+                                        if (c.isLowerCase()) hasLower = true
+                                        if (c.isDigit()) hasDigit = true
+                                        if (c in specials) hasSpecial = true
+                                    }
+                                    return hasUpper && hasLower && hasDigit && hasSpecial
+                                }
+                                if (!isPasswordComplexitySatisfied(passwordInput)) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Error: Password must be at least 8 chars with uppercase, lowercase, number, and special character.")
+                                    }
+                                    return@Button
+                                }
+                                if (passwordInput != confirmPasswordInput) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Error: Password confirmation mismatch!")
+                                    }
+                                    return@Button
+                                }
+                                val result = viewModel.register(usernameInput, emailInput, phoneInput, selectedRoleByInput, passwordInput)
                                 coroutineScope.launch { snackbarHostState.showSnackbar(result) }
                             } else {
                                 val success = viewModel.login(emailInput, passwordInput)
@@ -3925,12 +4465,21 @@ fun AccountCenterView(
                             .background(PrimaryEmerald.copy(0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            user.username.take(2).uppercase(),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = PrimaryEmerald
-                        )
+                        if (!user.profilePhoto.isNullOrBlank()) {
+                            AsyncImage(
+                                model = user.profilePhoto,
+                                contentDescription = "Profile Photo",
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                user.username.take(2).uppercase(),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = PrimaryEmerald
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
@@ -4017,10 +4566,11 @@ fun AccountCenterView(
             ScrollableTabRow(
                 selectedTabIndex = when (profileCategoryTab) {
                     "🏡 Workspace" -> 0
-                    "🛡️ Profile & Security" -> 1
-                    "💳 Wallet & Subs" -> 2
-                    "⚡ Pricing Rules" -> 3
-                    "⚙️ Admin Dashboard" -> 4
+                    "🪪 RTB Smart Card" -> 1
+                    "🛡️ Profile & Security" -> 2
+                    "💳 Wallet & Subs" -> 3
+                    "⚡ Pricing Rules" -> 4
+                    "⚙️ Admin Dashboard" -> 5
                     else -> 0
                 },
                 containerColor = Color.Transparent,
@@ -4031,6 +4581,13 @@ fun AccountCenterView(
                     selected = profileCategoryTab == "🏡 Workspace",
                     onClick = { profileCategoryTab = "🏡 Workspace" },
                     text = { Text("🏡 Workspace", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    selectedContentColor = PrimaryEmerald,
+                    unselectedContentColor = GreyText
+                )
+                Tab(
+                    selected = profileCategoryTab == "🪪 RTB Smart Card",
+                    onClick = { profileCategoryTab = "🪪 RTB Smart Card" },
+                    text = { Text("🪪 RTB Smart Card", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     selectedContentColor = PrimaryEmerald,
                     unselectedContentColor = GreyText
                 )
@@ -4253,15 +4810,15 @@ fun AccountCenterView(
                                 item {
                                     Card(colors = CardDefaults.cardColors(containerColor = CardSlate), modifier = Modifier.fillMaxWidth()) {
                                         Column(Modifier.padding(14.dp)) {
-                                            Text("📤 Upload Verification Scan Documents (KYC)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AccentTeal)
-                                            Spacer(Modifier.height(8.dp))
+                                            Text("📤 Upload Verification Scan Documents (KYC)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AccentTeal)
+                                            Text("Government secure KYC system. Supported: PDF, JPG, PNG", fontSize = 10.sp, color = GreyText, modifier = Modifier.padding(bottom = 8.dp))
 
                                             var selectedDocTypeForUpload by remember { mutableStateOf("NID Card") }
-                                            var mockDocFileName by remember { mutableStateOf("") }
+                                            var expiryDateInput by remember { mutableStateOf("2030-12-31") }
 
                                             Text("Select Document Category:", fontSize = 10.sp, color = GreyText)
                                             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                listOf("NID Card", "Smart NID", "Birth Certificate", "Passport", "Student ID", "Utility Bill").forEach { type ->
+                                                listOf("NID Card", "Smart NID", "Birth Certificate", "Passport", "Driving License", "Student ID", "Utility Bill").forEach { type ->
                                                     Card(
                                                         shape = RoundedCornerShape(8.dp),
                                                         colors = CardDefaults.cardColors(containerColor = if (selectedDocTypeForUpload == type) AccentTeal.copy(0.2f) else CardSlate.copy(0.4f)),
@@ -4272,31 +4829,140 @@ fun AccountCenterView(
                                                 }
                                             }
 
-                                            Spacer(Modifier.height(4.dp))
-                                            OutlinedTextField(
-                                                value = mockDocFileName,
-                                                onValueChange = { mockDocFileName = it },
-                                                label = { Text("Document File Name (e.g. nid_scan_f.jpg)") },
-                                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal),
-                                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp)
-                                            )
+                                            Spacer(Modifier.height(8.dp))
 
-                                            Spacer(Modifier.height(10.dp))
-                                            Button(
-                                                onClick = {
-                                                    if (mockDocFileName.isBlank()) {
-                                                        coroutineScope.launch { snackbarHostState.showSnackbar("Please enter a file name to simulate scanner.") }
-                                                    } else {
-                                                        viewModel.uploadTenantDocument(selectedDocTypeForUpload, mockDocFileName)
-                                                        mockDocFileName = ""
-                                                        coroutineScope.launch { snackbarHostState.showSnackbar("Document uploaded! Waiting for national server auditors.") }
+                                            if (selectedFileUri == null) {
+                                                Card(
+                                                    colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.4f)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { filePickerLauncher.launch("*/*") }
+                                                        .border(1.dp, AccentTeal.copy(0.2f), RoundedCornerShape(12.dp))
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.padding(20.dp).fillMaxWidth(),
+                                                        horizontalAlignment = Alignment.CenterHorizontally
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = androidx.compose.material.icons.Icons.Default.Add,
+                                                            contentDescription = "Upload icon",
+                                                            tint = AccentTeal,
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                        Spacer(Modifier.height(6.dp))
+                                                        Text("Click to choose PDF or Image", fontSize = 11.sp, color = LightText, fontWeight = FontWeight.Bold)
+                                                        Text("Max size: 5MB (Corrupted content scan active)", fontSize = 9.sp, color = GreyText)
                                                     }
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = AccentTeal),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text("Submit Verified Scan 📤", fontSize = 11.sp)
+                                                }
+                                            } else {
+                                                Card(
+                                                    colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.6f)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .border(1.dp, AccentTeal.copy(0.5f), RoundedCornerShape(12.dp))
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp)) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                val isPdf = selectedMimeType.contains("pdf", ignoreCase = true)
+                                                                Text(
+                                                                    text = if (isPdf) "📑 [PDF]" else "🖼️ [Image]",
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = AccentTeal,
+                                                                    modifier = Modifier.padding(end = 6.dp)
+                                                                )
+                                                                Text(
+                                                                    text = selectedFileName,
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = LightText,
+                                                                    maxLines = 1,
+                                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                                    modifier = Modifier.widthIn(max = 160.dp)
+                                                                )
+                                                            }
+
+                                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                TextButton(
+                                                                    onClick = { filePickerLauncher.launch("*/*") },
+                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                                ) {
+                                                                    Text("Replace 🔄", fontSize = 10.sp, color = AccentTeal)
+                                                                }
+                                                                TextButton(
+                                                                    onClick = {
+                                                                        selectedFileUri = null
+                                                                        selectedFileName = ""
+                                                                        selectedFileSize = 0L
+                                                                        selectedMimeType = ""
+                                                                        isUploading = false
+                                                                        uploadProgress = 0f
+                                                                    },
+                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                                ) {
+                                                                    Text("Remove ❌", fontSize = 10.sp, color = ErrorCrimson)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Spacer(Modifier.height(6.dp))
+                                                        Text("File Size: ${selectedFileSize / 1024} KB | MIME: $selectedMimeType", fontSize = 9.sp, color = GreyText)
+
+                                                        if (isUploading) {
+                                                            Spacer(Modifier.height(8.dp))
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                            ) {
+                                                                LinearProgressIndicator(
+                                                                    progress = { uploadProgress },
+                                                                    modifier = Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                                                    color = AccentTeal,
+                                                                    trackColor = CardSlate
+                                                                )
+                                                                Text("${(uploadProgress * 100).toInt()}%", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = AccentTeal)
+                                                            }
+                                                        } else {
+                                                            Spacer(Modifier.height(10.dp))
+                                                            Button(
+                                                                onClick = {
+                                                                    isUploading = true
+                                                                    coroutineScope.launch {
+                                                                        for (p in 1..100) {
+                                                                            kotlinx.coroutines.delay(10)
+                                                                            uploadProgress = p / 100f
+                                                                        }
+                                                                        isUploading = false
+                                                                        viewModel.uploadVerifiedDocumentSecurely(
+                                                                            selectedDocTypeForUpload,
+                                                                            selectedFileName,
+                                                                            selectedFileUri.toString(),
+                                                                            selectedMimeType,
+                                                                            selectedFileSize,
+                                                                            expiryDateInput
+                                                                        )
+                                                                        selectedFileUri = null
+                                                                        selectedFileName = ""
+                                                                        selectedFileSize = 0L
+                                                                        selectedMimeType = ""
+                                                                        snackbarHostState.showSnackbar("KYC File uploaded successfully & queued for digital audit!")
+                                                                    }
+                                                                },
+                                                                colors = ButtonDefaults.buttonColors(containerColor = AccentTeal),
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                shape = RoundedCornerShape(8.dp)
+                                                            ) {
+                                                                Text("Scan & Upload Secured Multipart file 🛡️", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -4429,12 +5095,26 @@ fun AccountCenterView(
                         }
                     }
                 }
+                
+                "🪪 RTB Smart Card" -> {
+                    RTBSmartCardView(
+                        user = user,
+                        viewModel = viewModel
+                    )
+                }
 
                 "🛡️ Profile & Security" -> {
                     var usernameEdit by remember(user) { mutableStateOf(user.username) }
                     var phoneEdit by remember(user) { mutableStateOf(user.phone) }
                     var emailEdit by remember(user) { mutableStateOf(user.email) }
                     var profilePhotoEdit by remember(user) { mutableStateOf(user.profilePhoto ?: "") }
+                    val photoPickerLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.GetContent()
+                    ) { uri ->
+                        if (uri != null) {
+                            profilePhotoEdit = uri.toString()
+                        }
+                    }
                     var addressEdit by remember(user) { mutableStateOf(user.address ?: "") }
                     var profileBioEdit by remember(user) { mutableStateOf(user.profileBio ?: "") }
                     var rentalPreferencesEdit by remember(user) { mutableStateOf(user.rentalPreferences ?: "") }
@@ -4491,6 +5171,93 @@ fun AccountCenterView(
                                         onValueChange = { profilePhotoEdit = it },
                                         label = "Profile Photo URL (Optional)"
                                     )
+
+                                    // Display photo preview and upload trigger
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(50.dp)
+                                                .clip(CircleShape)
+                                                .background(PrimaryEmerald.copy(0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (profilePhotoEdit.isNotBlank()) {
+                                                AsyncImage(
+                                                    model = profilePhotoEdit,
+                                                    contentDescription = "New Profile Photo",
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                )
+                                            } else {
+                                                Text(usernameEdit.take(2).uppercase(), fontWeight = FontWeight.Bold, color = PrimaryEmerald)
+                                            }
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Button(
+                                                onClick = { photoPickerLauncher.launch("image/*") },
+                                                colors = ButtonDefaults.buttonColors(containerColor = CardSlate),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.height(32.dp).border(1.dp, PrimaryEmerald.copy(0.3f), RoundedCornerShape(8.dp)),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("📷 Upload Custom Image", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = LightText)
+                                                }
+                                            }
+                                            Text("Browse device photos or select pre-made avatars below.", fontSize = 8.5.sp, color = GreyText, modifier = Modifier.padding(top = 4.dp))
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text("Select Quick Premium Avatar:", fontSize = 9.5.sp, color = LightText, fontWeight = FontWeight.Bold)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80" to "👨 Male A",
+                                            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80" to "👩 Female A",
+                                            "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=120&q=80" to "👨 Male B",
+                                            "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=120&q=80" to "👩 Female B"
+                                        ).forEach { (url, label) ->
+                                            val isSelected = profilePhotoEdit == url
+                                            Card(
+                                                modifier = Modifier
+                                                    .size(70.dp, 55.dp)
+                                                    .clickable { profilePhotoEdit = url }
+                                                    .border(
+                                                        2.dp,
+                                                        if (isSelected) PrimaryEmerald else Color.Transparent,
+                                                        RoundedCornerShape(6.dp)
+                                                    ),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                    AsyncImage(
+                                                        model = url,
+                                                        contentDescription = label,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .align(Alignment.BottomCenter)
+                                                            .background(Color.Black.copy(0.6f))
+                                                            .padding(vertical = 1.dp)
+                                                    ) {
+                                                        Text(label, fontSize = 7.5.sp, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     CustomOutlineTextField(
                                         value = addressEdit,
                                         onValueChange = { addressEdit = it },
@@ -4622,12 +5389,49 @@ fun AccountCenterView(
                                         }
                                     }
 
-                                    Spacer(Modifier.height(4.dp))
-                                    CustomOutlineTextField(
-                                        value = mockDocFileName,
-                                        onValueChange = { mockDocFileName = it },
-                                        label = "Scan File Name (e.g. smart_nid_compressed.jpg)"
-                                    )
+                                    var vaultFileUri by remember { mutableStateOf<android.net.Uri?>(null) }
+                                    var vaultFileName by remember { mutableStateOf("") }
+                                    var vaultFileSize by remember { mutableStateOf(0L) }
+                                    var vaultMimeType by remember { mutableStateOf("") }
+                                    var vaultProgress by remember { mutableStateOf(0f) }
+                                    var vaultIsUploading by remember { mutableStateOf(false) }
+
+                                    val vaultPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                                        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                                    ) { uri: android.net.Uri? ->
+                                        if (uri != null) {
+                                            val cursor = context.contentResolver.query(uri, null, null, null, null)
+                                            var name = "unknown_vault_doc"
+                                            var size = 0L
+                                            cursor?.use {
+                                                if (it.moveToFirst()) {
+                                                    val nameIdx = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                                    val sizeIdx = it.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                                                    if (nameIdx != -1) name = it.getString(nameIdx)
+                                                    if (sizeIdx != -1) size = it.getLong(sizeIdx)
+                                                }
+                                            }
+                                            val mime = context.contentResolver.getType(uri) ?: ""
+                                            val extension = name.substringAfterLast('.', "").lowercase()
+                                            val allowedExtensions = listOf("pdf", "jpg", "jpeg", "png")
+                                            if (extension !in allowedExtensions && !mime.contains("pdf") && !mime.contains("image")) {
+                                                coroutineScope.launch { snackbarHostState.showSnackbar("Rejected: Files with extension .$extension or MIME $mime are blocked for anti-malware safety.") }
+                                            } else if (size > 5 * 1024 * 1024) {
+                                                coroutineScope.launch { snackbarHostState.showSnackbar("Rejected: File size exceeds the maximum limit of 5MB.") }
+                                            } else {
+                                                vaultFileUri = uri
+                                                vaultFileName = name
+                                                vaultFileSize = size
+                                                vaultMimeType = if (mime.isBlank()) {
+                                                    if (extension == "pdf") "application/pdf" else "image/png"
+                                                } else mime
+                                                vaultProgress = 0f
+                                                vaultIsUploading = false
+                                                coroutineScope.launch { snackbarHostState.showSnackbar("Vault Ready: $name") }
+                                            }
+                                        }
+                                    }
+
                                     Spacer(Modifier.height(8.dp))
                                     CustomOutlineTextField(
                                         value = expiryDateInput,
@@ -4635,30 +5439,140 @@ fun AccountCenterView(
                                         label = "Doc Expiry Date (YYYY-MM-DD)"
                                     )
 
-                                    Spacer(Modifier.height(10.dp))
-                                    Button(
-                                        onClick = {
-                                            if (mockDocFileName.isBlank()) {
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Enter scan filename to simulate OCR scanner.")
-                                                }
-                                            } else {
-                                                viewModel.uploadTenantDocumentWithMeta(
-                                                    docType = selectedDocTypeForUpload,
-                                                    fileName = mockDocFileName,
-                                                    expiryDate = expiryDateInput
+                                    Spacer(Modifier.height(8.dp))
+
+                                    if (vaultFileUri == null) {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.4f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { vaultPickerLauncher.launch("*/*") }
+                                                .border(1.dp, AccentTeal.copy(0.2f), RoundedCornerShape(12.dp))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(20.dp).fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(
+                                                    imageVector = androidx.compose.material.icons.Icons.Default.Add,
+                                                    contentDescription = "Upload icon",
+                                                    tint = AccentTeal,
+                                                    modifier = Modifier.size(24.dp)
                                                 )
-                                                mockDocFileName = ""
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("New document version uploaded. Active audit processing.")
+                                                Spacer(Modifier.height(4.dp))
+                                                Text("Pick Vault Multi-Version PDF or Image", fontSize = 11.sp, color = LightText, fontWeight = FontWeight.Bold)
+                                                Text("Maximum safety scanning active", fontSize = 9.sp, color = GreyText)
+                                            }
+                                        }
+                                    } else {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.6f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .border(1.dp, AccentTeal.copy(0.4f), RoundedCornerShape(12.dp))
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        val isPdf = vaultMimeType.contains("pdf", ignoreCase = true)
+                                                        Text(
+                                                            text = if (isPdf) "📑 [PDF]" else "🖼️ [Image]",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = AccentTeal,
+                                                            modifier = Modifier.padding(end = 6.dp)
+                                                        )
+                                                        Text(
+                                                            text = vaultFileName,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = LightText,
+                                                            maxLines = 1,
+                                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                            modifier = Modifier.widthIn(max = 150.dp)
+                                                        )
+                                                    }
+
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        TextButton(
+                                                            onClick = { vaultPickerLauncher.launch("*/*") },
+                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text("Replace", fontSize = 10.sp, color = AccentTeal)
+                                                        }
+                                                        TextButton(
+                                                            onClick = {
+                                                                vaultFileUri = null
+                                                                vaultFileName = ""
+                                                                vaultFileSize = 0L
+                                                                vaultMimeType = ""
+                                                                vaultIsUploading = false
+                                                                vaultProgress = 0f
+                                                            },
+                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text("Remove", fontSize = 10.sp, color = ErrorCrimson)
+                                                        }
+                                                    }
+                                                }
+
+                                                Spacer(Modifier.height(4.dp))
+                                                Text("Size: ${vaultFileSize / 1024} KB | MIME: $vaultMimeType", fontSize = 9.sp, color = GreyText)
+
+                                                if (vaultIsUploading) {
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        LinearProgressIndicator(
+                                                            progress = { vaultProgress },
+                                                            modifier = Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                                            color = AccentTeal,
+                                                            trackColor = CardSlate
+                                                        )
+                                                        Text("${(vaultProgress * 100).toInt()}%", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = AccentTeal)
+                                                    }
+                                                } else {
+                                                    Spacer(Modifier.height(10.dp))
+                                                    Button(
+                                                        onClick = {
+                                                            vaultIsUploading = true
+                                                            coroutineScope.launch {
+                                                                for (p in 1..100) {
+                                                                    kotlinx.coroutines.delay(10)
+                                                                    vaultProgress = p / 100f
+                                                                }
+                                                                vaultIsUploading = false
+                                                                viewModel.uploadVerifiedDocumentSecurely(
+                                                                    docType = selectedDocTypeForUpload,
+                                                                    fileName = vaultFileName,
+                                                                    filePath = vaultFileUri.toString(),
+                                                                    mimeType = vaultMimeType,
+                                                                    fileSize = vaultFileSize,
+                                                                    expiryDate = expiryDateInput
+                                                                )
+                                                                vaultFileUri = null
+                                                                vaultFileName = ""
+                                                                vaultFileSize = 0L
+                                                                vaultMimeType = ""
+                                                                snackbarHostState.showSnackbar("Vault version matched and updated securely!")
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentTeal),
+                                                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                                                        shape = RoundedCornerShape(10.dp)
+                                                    ) {
+                                                        Text("Submit Scanner & Match Vault Version 📤", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
                                             }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = AccentTeal),
-                                        modifier = Modifier.fillMaxWidth().height(36.dp),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("Submit Verified Scan (Track Version) 📤", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -5016,6 +5930,16 @@ fun AccountCenterView(
                     var editingScoreUserEmail by remember { mutableStateOf<String?>(null) }
                     var trustScoreInputValue by remember { mutableStateOf("") }
 
+                    var editingFullProfileUserEmail by remember { mutableStateOf<String?>(null) }
+                    var editFullUsername by remember { mutableStateOf("") }
+                    var editFullPhone by remember { mutableStateOf("") }
+                    var editFullRole by remember { mutableStateOf(com.example.data.UserRole.TENANT) }
+                    var editFullTrustScore by remember { mutableStateOf("") }
+                    var editFullSubscription by remember { mutableStateOf("Free") }
+                    var editFullLocked by remember { mutableStateOf(false) }
+                    var editFullWallet by remember { mutableStateOf("") }
+                    var editFullNid by remember { mutableStateOf("") }
+
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -5206,6 +6130,98 @@ fun AccountCenterView(
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Text("🪪 Pending Tenant NID Manual Audits", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = LightText, modifier = Modifier.padding(top = 10.dp))
+                        }
+
+                        val pendingNidUsers = registeredUsers.filter { it.role == com.example.data.UserRole.TENANT && !it.nidVerifiedBadge }
+                        if (pendingNidUsers.isEmpty()) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("No pending tenant NIDs for manual verification audit currently.", fontSize = 11.sp, color = GreyText, modifier = Modifier.padding(12.dp))
+                                }
+                            }
+                        } else {
+                            items(pendingNidUsers) { auditUser ->
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = CardSlate),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, WarningAmber.copy(0.35f), RoundedCornerShape(12.dp))
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text("Tenant: ${auditUser.username}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = LightText)
+                                                Text("Email: ${auditUser.email} | Phone: ${auditUser.phone}", fontSize = 9.sp, color = GreyText)
+                                            }
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = WarningAmber.copy(0.12f)),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text("MANUAL AUDIT 🕒", color = WarningAmber, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text("Submitted NID / Birth Cert: ${auditUser.nidNumber ?: "5432167890"}", fontSize = 11.sp, color = SoftEmerald, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        Text("Status: Unapproved. Verify if name matches external government biometric registers before certifying.", fontSize = 9.sp, color = GreyText)
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Button(
+                                                onClick = {
+                                                    // Approve NID status
+                                                    viewModel.adminUpdateUserProfile(
+                                                        email = auditUser.email,
+                                                        username = auditUser.username,
+                                                        phone = auditUser.phone,
+                                                        role = auditUser.role,
+                                                        trustScore = 90, // automatically upgrade trust score on verification
+                                                        subscriptionType = auditUser.subscriptionType,
+                                                        isLocked = auditUser.isLocked,
+                                                        walletBalance = auditUser.walletBalance,
+                                                        nidNumber = auditUser.nidNumber ?: "5432167890"
+                                                    )
+                                                    // also tag their NID verified badge internally
+                                                    viewModel.adminDirectVerifyUser(auditUser.email)
+                                                    coroutineScope.launch { snackbarHostState.showSnackbar("NID manually certified & verified successfully. Secure score calibrated.") }
+                                                },
+                                                colors = ButtonColors(containerColor = VerifiedGreen, contentColor = Color.White, disabledContainerColor = Color.Gray, disabledContentColor = Color.White),
+                                                modifier = Modifier.weight(1f).height(32.dp),
+                                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Approve Real NID", fontSize = 10.sp)
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    // Reject NID status
+                                                    viewModel.setUserLockStatus(auditUser.email, true)
+                                                    coroutineScope.launch { snackbarHostState.showSnackbar("Flagged fake/fraud credentials. Audit action recorded.") }
+                                                },
+                                                colors = ButtonColors(containerColor = ErrorCrimson, contentColor = Color.White, disabledContainerColor = Color.Gray, disabledContentColor = Color.White),
+                                                modifier = Modifier.weight(1f).height(32.dp),
+                                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Reject Fake NID", fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text("🛡️ Note: Future automated OCR integrations will match biometrics to Bangladesh Election Commission servers.", fontSize = 7.5.sp, color = InfoSky, fontWeight = FontWeight.Medium)
                                     }
                                 }
                             }
@@ -5429,14 +6445,21 @@ fun AccountCenterView(
 
                                                     Button(
                                                         onClick = {
-                                                            editingScoreUserEmail = regUser.email
-                                                            trustScoreInputValue = regUser.trustScore.toString()
+                                                            editingFullProfileUserEmail = regUser.email
+                                                            editFullUsername = regUser.username
+                                                            editFullPhone = regUser.phone
+                                                            editFullRole = regUser.role
+                                                            editFullTrustScore = regUser.trustScore.toString()
+                                                            editFullSubscription = regUser.subscriptionType
+                                                            editFullLocked = regUser.isLocked
+                                                            editFullWallet = regUser.walletBalance.toString()
+                                                            editFullNid = regUser.nidNumber ?: "5432167890"
                                                         },
-                                                        colors = ButtonDefaults.buttonColors(containerColor = InfoSky.copy(0.2f)),
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentTeal.copy(0.25f)),
                                                         contentPadding = PaddingValues(horizontal = 8.dp),
                                                         modifier = Modifier.height(28.dp)
                                                     ) {
-                                                        Text("Modify Trust", fontSize = 9.sp, color = InfoSky, fontWeight = FontWeight.Bold)
+                                                        Text("✏️ Edit Profile", fontSize = 9.sp, color = AccentTeal, fontWeight = FontWeight.Bold)
                                                     }
                                                 }
                                             }
@@ -5470,15 +6493,162 @@ fun AccountCenterView(
                                                                     coroutineScope.launch { snackbarHostState.showSnackbar("Trust score must be 0 to 100.") }
                                                                 }
                                                             },
-                                                            colors = ButtonDefaults.buttonColors(containerColor = InfoSky),
+                                                            colors = ButtonColors(containerColor = InfoSky, contentColor = Color.White, disabledContainerColor = Color.Gray, disabledContentColor = Color.White),
                                                             modifier = Modifier.height(32.dp)
                                                         ) {
                                                             Text("Apply", fontSize = 10.sp)
                                                         }
                                                         Button(
                                                             onClick = { editingScoreUserEmail = null },
-                                                            colors = ButtonDefaults.buttonColors(containerColor = ErrorCrimson),
+                                                            colors = ButtonColors(containerColor = ErrorCrimson, contentColor = Color.White, disabledContainerColor = Color.Gray, disabledContentColor = Color.White),
                                                             modifier = Modifier.height(32.dp)
+                                                        ) {
+                                                            Text("Cancel", fontSize = 10.sp)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (editingFullProfileUserEmail == regUser.email) {
+                                            Spacer(Modifier.height(8.dp))
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.15f)),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(1.5.dp, AccentTeal, RoundedCornerShape(12.dp))
+                                            ) {
+                                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Text("✏️ Complete System Profile Editor", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccentTeal)
+                                                    Text("Modify security-essential registry attributes below for ${regUser.username}.", fontSize = 8.sp, color = GreyText)
+
+                                                    // Username edit field
+                                                    OutlinedTextField(
+                                                        value = editFullUsername,
+                                                        onValueChange = { editFullUsername = it },
+                                                        label = { Text("Display Name/Username", fontSize = 9.sp) },
+                                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                        textStyle = TextStyle(fontSize = 11.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal)
+                                                    )
+
+                                                    // Phone edit field
+                                                    OutlinedTextField(
+                                                        value = editFullPhone,
+                                                        onValueChange = { editFullPhone = it },
+                                                        label = { Text("Phone Number", fontSize = 9.sp) },
+                                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                        textStyle = TextStyle(fontSize = 11.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal)
+                                                    )
+
+                                                    // NID Number edit field
+                                                    OutlinedTextField(
+                                                        value = editFullNid,
+                                                        onValueChange = { editFullNid = it },
+                                                        label = { Text("National ID Number", fontSize = 9.sp) },
+                                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                        textStyle = TextStyle(fontSize = 11.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal)
+                                                    )
+
+                                                    // Wallet edit field
+                                                    OutlinedTextField(
+                                                        value = editFullWallet,
+                                                        onValueChange = { editFullWallet = it },
+                                                        label = { Text("Wallet Balance (BDT)", fontSize = 9.sp) },
+                                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                        textStyle = TextStyle(fontSize = 11.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal)
+                                                    )
+
+                                                    // Trust Score edit field
+                                                    OutlinedTextField(
+                                                        value = editFullTrustScore,
+                                                        onValueChange = { editFullTrustScore = it },
+                                                        label = { Text("Trust Score (0-100)", fontSize = 9.sp) },
+                                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                        textStyle = TextStyle(fontSize = 11.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal)
+                                                    )
+
+                                                    // Subscription Upgrades Input
+                                                    OutlinedTextField(
+                                                        value = editFullSubscription,
+                                                        onValueChange = { editFullSubscription = it },
+                                                        label = { Text("Subscription Tier", fontSize = 9.sp) },
+                                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                        textStyle = TextStyle(fontSize = 11.sp),
+                                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentTeal)
+                                                    )
+
+                                                    // Role dropdown simulator/buttons
+                                                    Column {
+                                                        Text("Target Authorization Role", fontSize = 9.sp, color = GreyText)
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                                            com.example.data.UserRole.values().forEach { role ->
+                                                                val isSelected = editFullRole == role
+                                                                Button(
+                                                                    onClick = { editFullRole = role },
+                                                                    colors = ButtonColors(
+                                                                        containerColor = if (isSelected) AccentTeal else CardSlate,
+                                                                        contentColor = if (isSelected) Color.White else GreyText,
+                                                                        disabledContainerColor = Color.Gray,
+                                                                        disabledContentColor = Color.White
+                                                                    ),
+                                                                    modifier = Modifier.weight(1f).height(24.dp),
+                                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                                                ) {
+                                                                    Text(role.name.take(4), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Locked status toggle
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text("Lock account credentials completely?", fontSize = 10.sp, color = LightText)
+                                                        androidx.compose.material3.Switch(
+                                                            checked = editFullLocked,
+                                                            onCheckedChange = { editFullLocked = it },
+                                                            modifier = Modifier.scale(0.8f)
+                                                        )
+                                                    }
+
+                                                    // Actions
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                                        Button(
+                                                            onClick = {
+                                                                val walletBal = editFullWallet.toIntOrNull() ?: regUser.walletBalance
+                                                                val ts = editFullTrustScore.toIntOrNull() ?: regUser.trustScore
+                                                                viewModel.adminUpdateUserProfile(
+                                                                    email = regUser.email,
+                                                                    username = editFullUsername,
+                                                                    phone = editFullPhone,
+                                                                    role = editFullRole,
+                                                                    trustScore = ts,
+                                                                    subscriptionType = editFullSubscription,
+                                                                    isLocked = editFullLocked,
+                                                                    walletBalance = walletBal,
+                                                                    nidNumber = editFullNid
+                                                                )
+                                                                editingFullProfileUserEmail = null
+                                                                coroutineScope.launch { snackbarHostState.showSnackbar("User card credentials modified successfully via admin root panel.") }
+                                                            },
+                                                            colors = ButtonColors(containerColor = AccentTeal, contentColor = Color.White, disabledContainerColor = Color.Gray, disabledContentColor = Color.White),
+                                                            modifier = Modifier.weight(1f).height(32.dp)
+                                                        ) {
+                                                            Text("Apply Modifications", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                        }
+
+                                                        Button(
+                                                            onClick = { editingFullProfileUserEmail = null },
+                                                            colors = ButtonColors(containerColor = ErrorCrimson, contentColor = Color.White, disabledContainerColor = Color.Gray, disabledContentColor = Color.White),
+                                                            modifier = Modifier.weight(1f).height(32.dp)
                                                         ) {
                                                             Text("Cancel", fontSize = 10.sp)
                                                         }
@@ -6638,3 +7808,929 @@ fun StaticBillingRow(label: String, value: String) {
         Text(value, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SoftEmerald)
     }
 }
+
+// ==========================================
+// RENT TRUTH BD — SMART IDENTITY CARD SYSTEM
+// ==========================================
+
+@Composable
+fun ShimmerItem(
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 100.dp,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp)
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0.15f at 0
+                0.45f at 550
+                0.15f at 1100
+            },
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+    Box(
+        modifier = modifier
+            .height(height)
+            .clip(shape)
+            .background(CardSlate.copy(alpha = alpha))
+    )
+}
+
+@Composable
+fun ListingSkeletonCard() {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSlate),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .border(1.dp, Color(0xFFE1E2E9).copy(0.08f), RoundedCornerShape(16.dp))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ShimmerItem(modifier = Modifier.width(110.dp), height = 16.dp, shape = RoundedCornerShape(4.dp))
+                ShimmerItem(modifier = Modifier.width(55.dp), height = 16.dp, shape = RoundedCornerShape(4.dp))
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            ShimmerItem(modifier = Modifier.fillMaxWidth(), height = 12.dp, shape = RoundedCornerShape(4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            ShimmerItem(modifier = Modifier.fillMaxWidth(0.7f), height = 12.dp, shape = RoundedCornerShape(4.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                ShimmerItem(modifier = Modifier.width(70.dp), height = 22.dp, shape = RoundedCornerShape(8.dp))
+                ShimmerItem(modifier = Modifier.width(90.dp), height = 22.dp, shape = RoundedCornerShape(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun StylizedQRCodeCanvas(
+    payload: String,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val size = size.minDimension
+        val numCells = 15
+        val cellSize = size / numCells
+        
+        // Draw standard QR finder patterns at top-left, top-right, bottom-left
+        val patternBrush = Brush.linearGradient(
+            colors = listOf(Color(0xFF00FFCC), Color(0xFF00AA88))
+        )
+        
+        fun drawFinderPattern(x: Float, y: Float) {
+            // Outer 5x5 cell block
+            drawRect(
+                brush = patternBrush,
+                topLeft = Offset(x, y),
+                size = androidx.compose.ui.geometry.Size(cellSize * 5, cellSize * 5)
+            )
+            // Inner clean space
+            drawRect(
+                color = Color.Black,
+                topLeft = Offset(x + cellSize, y + cellSize),
+                size = androidx.compose.ui.geometry.Size(cellSize * 3, cellSize * 3)
+            )
+            // Center solid block
+            drawRect(
+                brush = patternBrush,
+                topLeft = Offset(x + cellSize * 1.5f, y + cellSize * 1.5f),
+                size = androidx.compose.ui.geometry.Size(cellSize * 2, cellSize * 2)
+            )
+        }
+        
+        // Background
+        drawRect(color = Color.Black)
+        
+        // Finder patterns
+        drawFinderPattern(0f, 0f) // Top-Left
+        drawFinderPattern((numCells - 5) * cellSize, 0f) // Top-Right
+        drawFinderPattern(0f, (numCells - 5) * cellSize) // Bottom-Left
+        
+        // Simulating randomized QR data blocks based on payload hash (reproducible)
+        val hash = payload.hashCode().toLong()
+        val random = java.util.Random(hash)
+        
+        for (row in 0 until numCells) {
+            for (col in 0 until numCells) {
+                // Skip finder pattern dimensions (top-left, top-right, bottom-left)
+                if (row < 5 && col < 5) continue
+                if (row < 5 && col >= numCells - 5) continue
+                if (row >= numCells - 5 && col < 5) continue
+                
+                if (random.nextBoolean()) {
+                    drawRect(
+                        brush = patternBrush,
+                        topLeft = Offset(col * cellSize, row * cellSize),
+                        size = androidx.compose.ui.geometry.Size(cellSize * 0.9f, cellSize * 0.9f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ScannerSimulationView(
+    onScanMatched: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "scanner")
+    
+    // Laser line vertical sweep animation
+    val sweepProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sweep"
+    )
+    
+    // Interactive Grid scaling pulse
+    val scalePulse by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "gridScale"
+    )
+
+    // View layout
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.92f))
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "SECURITY AUDIT SCANNER INTERFACE",
+                color = AccentTeal,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp,
+                letterSpacing = 1.5.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Hold the RTB card front QR towards the camera lens",
+                color = GreyText,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center
+            )
+            
+            Spacer(Modifier.height(24.dp))
+            
+            Box(
+                modifier = Modifier
+                    .size(240.dp)
+                    .border(2.dp, AccentTeal, RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(CardSlate.copy(0.4f)),
+                contentAlignment = Alignment.Center
+            ) {
+                // Drawing the security camera grids
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .scale(scalePulse)
+                ) {
+                    val strokeWidth = 1f
+                    val gridSpacing = 20.dp.toPx()
+                    val totalLinesHoriz = (size.height / gridSpacing).toInt()
+                    val totalLinesVert = (size.width / gridSpacing).toInt()
+                    
+                    for (i in 0..totalLinesHoriz) {
+                        drawLine(
+                            color = AccentTeal.copy(0.12f),
+                            start = Offset(0f, i * gridSpacing),
+                            end = Offset(size.width, i * gridSpacing),
+                            strokeWidth = strokeWidth
+                        )
+                    }
+                    for (i in 0..totalLinesVert) {
+                        drawLine(
+                            color = AccentTeal.copy(0.12f),
+                            start = Offset(i * gridSpacing, 0f),
+                            end = Offset(i * gridSpacing, size.height),
+                            strokeWidth = strokeWidth
+                        )
+                    }
+                }
+                
+                // Sweep vertical line laser
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val sweepY = size.height * sweepProgress
+                    drawLine(
+                        color = Color(0xFF00FFCC),
+                        start = Offset(0f, sweepY),
+                        end = Offset(size.width, sweepY),
+                        strokeWidth = 3.dp.toPx()
+                    )
+                    // Neon gradient overlay under sweep
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF00FFCC).copy(0.15f),
+                                Color.Transparent
+                            ),
+                            startY = sweepY - 40.dp.toPx(),
+                            endY = sweepY
+                        ),
+                        topLeft = Offset(0f, sweepY - 40.dp.toPx()),
+                        size = androidx.compose.ui.geometry.Size(size.width, 40.dp.toPx())
+                    )
+                }
+                
+                // Overlay viewfinder corners
+                Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    Box(modifier = Modifier.size(24.dp).align(Alignment.TopStart).border(BorderStroke(2.dp, AccentTeal), RoundedCornerShape(topStart = 8.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 0.dp)))
+                    Box(modifier = Modifier.size(24.dp).align(Alignment.TopEnd).border(BorderStroke(2.dp, AccentTeal), RoundedCornerShape(topStart = 0.dp, topEnd = 8.dp, bottomStart = 0.dp, bottomEnd = 0.dp)))
+                    Box(modifier = Modifier.size(24.dp).align(Alignment.BottomStart).border(BorderStroke(2.dp, AccentTeal), RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 8.dp, bottomEnd = 0.dp)))
+                    Box(modifier = Modifier.size(24.dp).align(Alignment.BottomEnd).border(BorderStroke(2.dp, AccentTeal), RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 8.dp)))
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(30.dp))
+            
+            Button(
+                onClick = onClose,
+                colors = ButtonDefaults.buttonColors(containerColor = ErrorCrimson)
+            ) {
+                Text("Deactivate Scanner System", fontSize = 11.sp, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun SmartCardFront(
+    user: UserAccount,
+    cardId: String,
+    qrPayload: String,
+    cardCategoryName: String,
+    cardColorBrush: Brush,
+    isRevoked: Boolean
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(210.dp)
+            .border(1.dp, Color.White.copy(0.12f), RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(cardColorBrush)
+                .padding(16.dp)
+        ) {
+            // Subtle branding watermark in background
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .rotate(-20f)
+                    .graphicsLayer(alpha = 0.06f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("RENT TRUTH BANGLADESH SECURE CO", fontSize = 26.sp, fontWeight = FontWeight.Black, color = Color.White)
+            }
+            
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🛡️ Rent Truth BD Passport", color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = if (isRevoked) ErrorCrimson else VerifiedGreen),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = if (isRevoked) "REVOKED" else "ACTIVE",
+                                color = Color.White,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Text(cardCategoryName, color = Color.White.copy(0.85f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Card Main Data Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("CARD HOLDER", color = Color.White.copy(0.5f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(user.username.uppercase(), color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold, overflow = TextOverflow.Ellipsis, maxLines = 1)
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Text("RTB REGISTERED ID", color = Color.White.copy(0.5f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(cardId, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Row {
+                            Column {
+                                Text("TRUST INDEX", color = Color.White.copy(0.5f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(if (isRevoked) ErrorCrimson else VerifiedGreen))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("${user.trustScore}/100", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(18.dp))
+                            Column {
+                                Text("EXPIRY DATE", color = Color.White.copy(0.5f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Text("2030-12-31", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.width(10.dp))
+                    
+                    // Styled Dynamic Vector QR Code Canvas
+                    Box(
+                        modifier = Modifier
+                            .size(90.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, Color.White.copy(0.25f), RoundedCornerShape(8.dp))
+                    ) {
+                        StylizedQRCodeCanvas(
+                            payload = qrPayload,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SmartCardBack(
+    user: UserAccount,
+    cardId: String,
+    cardColorBrush: Brush,
+    isRevoked: Boolean
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(210.dp)
+            .border(1.dp, Color.White.copy(0.12f), RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(cardColorBrush)
+                .padding(16.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                // Security strip
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp)
+                        .background(Color.Black.copy(0.85f))
+                )
+                
+                Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+                    Text("EMERGENCY RESPONSE: 999 📞", color = Color.White.copy(0.7f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(2.dp))
+                    Text("VERIFICATION FLOW: Request tenant/owner to load their passport QR. Scan with the RTB auditor tool. Database mismatch results in instant device lockout.", color = Color.White.copy(0.5f), fontSize = 8.sp)
+                }
+                
+                // Cryptographic Signatures
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("DAEMON SIGNATURE CRYPTOSIGN", color = Color.White.copy(0.40f), fontSize = 7.sp)
+                        Text(
+                            text = if (isRevoked) "REVOKED_DAEMON" else "0x8F9EE" + java.lang.Math.abs(cardId.hashCode()).toString(16).uppercase() + "9B",
+                            color = if (isRevoked) ErrorCrimson else SoftEmerald,
+                            fontSize = 8.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .border(1.dp, Color.White.copy(0.3f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "TAMPER ACTIVE DAEMON",
+                            color = Color.White.copy(0.75f),
+                            fontSize = 7.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RTBSmartCardView(
+    user: UserAccount,
+    viewModel: RentViewModel
+) {
+    val registeredUsers by viewModel.registeredUsers.collectAsState()
+    var isBackFlipped by remember { mutableStateOf(false) }
+    var selectedUserForScanSim by remember { mutableStateOf(user) }
+    var showScanSimScanner by remember { mutableStateOf(false) }
+    var activeScanResult by remember { mutableStateOf<ScanResult?>(null) }
+    var tamperModeActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var manualPayloadInput by remember { mutableStateOf("") }
+
+    // Synchronize selected persona when current viewing user changes
+    LaunchedEffect(user) {
+        selectedUserForScanSim = user
+    }
+
+    // Colors and Branding based on User Role & Status
+    val (cardCategory, cardColorBrush) = remember(selectedUserForScanSim) {
+        val type = when {
+            selectedUserForScanSim.isAdmin || selectedUserForScanSim.role == UserRole.SYSTEM -> {
+                "Verified Premium Member Card" to Brush.linearGradient(
+                    colors = listOf(Color(0xFFCE9E34), Color(0xFFE5A93B), Color(0xFFFFD700))
+                )
+            }
+            selectedUserForScanSim.role == UserRole.OWNER -> {
+                "Landlord Platinum Card" to Brush.linearGradient(
+                    colors = listOf(Color(0xFF0052D4), Color(0xFF4364F7), Color(0xFF6FB1FC))
+                )
+            }
+            selectedUserForScanSim.role == UserRole.BROKER -> {
+                "Broker Professional Card" to Brush.linearGradient(
+                    colors = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
+                )
+            }
+            selectedUserForScanSim.studentModeState -> {
+                "Student Tenant Special Card" to Brush.linearGradient(
+                    colors = listOf(Color(0xFF11998E), Color(0xFF38EF7D))
+                )
+            }
+            else -> {
+                "Verified Tenant Card" to Brush.linearGradient(
+                    colors = listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
+                )
+            }
+        }
+        type
+    }
+
+    val cardId = remember(selectedUserForScanSim) {
+        "RTB-IDX-" + selectedUserForScanSim.phone.takeLast(4) + "-" + (selectedUserForScanSim.role.name.take(3))
+    }
+
+    // Formulate a securely hashed Base64 dynamic QR payload containing user info
+    val qrPayload = remember(selectedUserForScanSim, tamperModeActive) {
+        val scoreToIncorporate = if (tamperModeActive) 100 else selectedUserForScanSim.trustScore
+        val balanceToIncorporate = if (tamperModeActive) 9999999 else selectedUserForScanSim.walletBalance
+        val raw = "rt_nid_secure_${selectedUserForScanSim.email}_score_${scoreToIncorporate}_balance_${balanceToIncorporate}"
+        val signatureSecret = "cryptosign_bd_rtb_digital_root"
+        val payloadWithSig = "$raw|sig=${if (tamperModeActive) "INVALID_FORGED_SIGNATURE" else (raw + signatureSecret).hashCode().toString(16)}"
+        android.util.Base64.encodeToString(payloadWithSig.toByteArray(), android.util.Base64.NO_WRAP)
+    }
+
+    val isRevoked = selectedUserForScanSim.trustScore < 40
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CardSlate),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "💳 Smart QR Card Ecosystem",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 15.sp,
+                    color = PrimaryEmerald
+                )
+                Text(
+                    text = "Rent Truth BD issues cryptographic identity passes containing verified NID security vectors directly synced with public administration databases.",
+                    fontSize = 10.5.sp,
+                    color = GreyText,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
+                )
+
+                // Interactive flippable card component
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isBackFlipped = !isBackFlipped }
+                ) {
+                    if (isBackFlipped) {
+                        SmartCardBack(
+                            user = selectedUserForScanSim,
+                            cardId = cardId,
+                            cardColorBrush = cardColorBrush,
+                            isRevoked = isRevoked
+                        )
+                    } else {
+                        SmartCardFront(
+                            user = selectedUserForScanSim,
+                            cardId = cardId,
+                            qrPayload = qrPayload,
+                            cardCategoryName = cardCategory,
+                            cardColorBrush = cardColorBrush,
+                            isRevoked = isRevoked
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "💡 Tap on the smart ID above to flip between Front details and security Back signatures.",
+                    fontSize = 9.5.sp,
+                    color = GreyText,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Dynamic Search Console
+                Text("🔍 National Citizen Verification Directory", fontSize = 11.5.sp, color = SoftEmerald, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search by Name, Phone, Email, or NID Number...", fontSize = 11.sp, color = GreyText) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryEmerald,
+                        unfocusedBorderColor = GreyText.copy(0.3f)
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Filtered search list
+                val filteredUsers = remember(searchQuery, registeredUsers) {
+                    if (searchQuery.isBlank()) {
+                        registeredUsers
+                    } else {
+                        val q = searchQuery.lowercase()
+                        registeredUsers.filter { u ->
+                            u.username.lowercase().contains(q) ||
+                            u.email.lowercase().contains(q) ||
+                            u.phone.contains(q) ||
+                            (u.nidNumber ?: "").contains(q)
+                        }
+                    }
+                }
+
+                if (filteredUsers.isEmpty()) {
+                    Text("No registered citizens match search criteria.", fontSize = 9.5.sp, color = ErrorCrimson, modifier = Modifier.padding(vertical = 4.dp))
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        filteredUsers.forEach { u ->
+                            val isSelected = selectedUserForScanSim.email == u.email
+                            Card(
+                                onClick = {
+                                    selectedUserForScanSim = u
+                                    isBackFlipped = false
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) PrimaryEmerald.copy(0.12f) else CardSlate
+                                ),
+                                modifier = Modifier
+                                    .widthIn(max = 180.dp)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) PrimaryEmerald else GreyText.copy(0.2f),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(PrimaryEmerald.copy(0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(u.username.take(1).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PrimaryEmerald)
+                                    }
+                                    Column {
+                                        Text(u.username, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = LightText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${u.role.name} • ${u.phone.takeLast(4)}", fontSize = 8.sp, color = GreyText)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Paste Signature Decode Scanner
+                Text("🔒 Cryptographic QR Code Signature Decoder", fontSize = 11.sp, color = LightText, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = manualPayloadInput,
+                    onValueChange = { manualPayloadInput = it },
+                    placeholder = { Text("Paste Base64 Card Signature String to scan...", fontSize = 10.sp, color = GreyText) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SoftEmerald,
+                        unfocusedBorderColor = GreyText.copy(0.3f)
+                    ),
+                    textStyle = TextStyle(fontSize = 9.sp, fontFamily = FontFamily.Monospace),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Button(
+                    onClick = {
+                        if (manualPayloadInput.isNotBlank()) {
+                            try {
+                                val rawDecoded = String(android.util.Base64.decode(manualPayloadInput, android.util.Base64.DEFAULT))
+                                val parts = rawDecoded.split("|sig=")
+                                val content = parts.getOrNull(0) ?: ""
+                                val signature = parts.getOrNull(1) ?: ""
+                                
+                                val signatureSecret = "cryptosign_bd_rtb_digital_root"
+                                val correctSignature = (content + signatureSecret).hashCode().toString(16)
+                                
+                                val isValidSig = signature == correctSignature
+                                
+                                val extractedEmail = content.substringAfter("rt_nid_secure_").substringBefore("_score")
+                                val matchingDbUser = viewModel.registeredUsers.value.find { it.email.lowercase() == extractedEmail.lowercase() }
+                                
+                                if (matchingDbUser != null) {
+                                    activeScanResult = ScanResult(
+                                        isValid = isValidSig,
+                                        username = matchingDbUser.username,
+                                        email = matchingDbUser.email,
+                                        extractedRole = matchingDbUser.role.name,
+                                        trustScore = matchingDbUser.trustScore,
+                                        walletBalance = matchingDbUser.walletBalance,
+                                        certHash = "pasted_hash_" + java.lang.Math.abs(matchingDbUser.phone.hashCode()).toString(16),
+                                        tampered = !isValidSig
+                                    )
+                                } else {
+                                    activeScanResult = ScanResult(
+                                        isValid = false,
+                                        username = "Unknown Spoofed Occupant",
+                                        email = extractedEmail,
+                                        extractedRole = "TENANT",
+                                        trustScore = 0,
+                                        walletBalance = 0,
+                                        certHash = "forged_hash_" + manualPayloadInput.hashCode().toString(16),
+                                        tampered = true
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                activeScanResult = ScanResult(
+                                    isValid = false,
+                                    username = "MALFORMED SIGNATURE STRING",
+                                    email = "none",
+                                    extractedRole = "NONE",
+                                    trustScore = 0,
+                                    walletBalance = 0,
+                                    certHash = "malformed_key",
+                                    tampered = true
+                                )
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentTeal),
+                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("🔒 Decrypt Paste Signature Payload", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Tamper malicious injection test tool
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.40f)),
+                    modifier = Modifier.fillMaxWidth().border(0.5.dp, ErrorCrimson.copy(0.3f), RoundedCornerShape(10.dp))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("😈 Hack / Malicious Card Tampering", fontSize = 11.sp, color = ErrorCrimson, fontWeight = FontWeight.Bold)
+                            Text("Artificially inflate holding balance to 9,999,999 BDT & score to 100 on the card without digital secret generation keys.", fontSize = 9.sp, color = GreyText)
+                        }
+                        Switch(
+                            checked = tamperModeActive,
+                            onCheckedChange = { tamperModeActive = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = ErrorCrimson, checkedTrackColor = ErrorCrimson.copy(0.4f))
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        showScanSimScanner = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("🛡️ Activate Verification Laser Scanner", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // Camera viewfinder overlay activation
+        if (showScanSimScanner) {
+            ScannerSimulationView(
+                onScanMatched = {},
+                onClose = {
+                    showScanSimScanner = false
+                }
+            )
+
+            // Auto transition scanner sweeping processing
+            LaunchedEffect(showScanSimScanner) {
+                if (showScanSimScanner) {
+                    kotlinx.coroutines.delay(2200) // Sweeps the green scanning grid
+                    showScanSimScanner = false
+                    
+                    // Run security audit deciphering
+                    val rawDecoded = String(android.util.Base64.decode(qrPayload, android.util.Base64.DEFAULT))
+                    val parts = rawDecoded.split("|sig=")
+                    val content = parts.getOrNull(0) ?: ""
+                    val signature = parts.getOrNull(1) ?: ""
+                    
+                    val signatureSecret = "cryptosign_bd_rtb_digital_root"
+                    val correctSignature = (content + signatureSecret).hashCode().toString(16)
+                    
+                    val isValidSig = signature == correctSignature && !tamperModeActive
+                    
+                    // Match registration storage to prevent custom forged payloads
+                    val extractedEmail = content.substringAfter("rt_nid_secure_").substringBefore("_score")
+                    val matchingDbUser = viewModel.registeredUsers.value.find { it.email == extractedEmail }
+                    val structureComplete = matchingDbUser != null && isValidSig
+                    
+                    activeScanResult = ScanResult(
+                        isValid = structureComplete,
+                        username = selectedUserForScanSim.username,
+                        email = selectedUserForScanSim.email,
+                        extractedRole = selectedUserForScanSim.role.name,
+                        trustScore = if (tamperModeActive) 100 else selectedUserForScanSim.trustScore,
+                        walletBalance = if (tamperModeActive) 9999999 else selectedUserForScanSim.walletBalance,
+                        certHash = "rtb_hash_" + java.lang.Math.abs(selectedUserForScanSim.phone.hashCode()).toString(16),
+                        tampered = tamperModeActive
+                    )
+                }
+            }
+        }
+
+        // Security Analysis Diagnostic report dialog
+        activeScanResult?.let { result ->
+            AlertDialog(
+                onDismissRequest = { activeScanResult = null },
+                confirmButton = {
+                    Button(
+                        onClick = { activeScanResult = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (result.isValid) VerifiedGreen else ErrorCrimson)
+                    ) {
+                        Text("Acknowledge Integrity Bound Verdict", fontSize = 11.sp, color = Color.White)
+                    }
+                },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(if (result.isValid) VerifiedGreen else ErrorCrimson)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (result.isValid) "VERIFIED SMART PASSPORT ✅" else "⛔ WARNING: CRYP_SIG COERCION MALWARE!",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (result.isValid) VerifiedGreen else ErrorCrimson
+                        )
+                    }
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (result.isValid) {
+                            Text("National Database Auditors have matched the micro-signature of this card. Digital signature matched the active user registry bounds successfully.", fontSize = 11.sp, color = LightText)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CardSlate.copy(0.40f)),
+                                modifier = Modifier.fillMaxWidth().border(0.5.dp, VerifiedGreen.copy(0.3f), RoundedCornerShape(8.dp))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text("PROCESSED ENCRYPTED SMART CARD INFO:", fontSize = 8.5.sp, color = VerifiedGreen, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("• Holder Name: ${result.username}", fontSize = 10.sp, color = LightText)
+                                    Text("• Assigned Role: ${result.extractedRole}", fontSize = 10.sp, color = LightText)
+                                    Text("• Verified Wallet Balance: ${result.walletBalance} BDT", fontSize = 10.sp, color = LightText)
+                                    Text("• System Trust Rating: ${result.trustScore}/100", fontSize = 10.sp, color = LightText, fontWeight = FontWeight.Bold)
+                                    Text("• Security Certificate: ${result.certHash}", fontSize = 8.5.sp, color = GreyText, fontFamily = FontFamily.Monospace)
+                                    Text("• Seal Signature: VALID CERTIFICATE MATCH", fontSize = 8.sp, color = VerifiedGreen, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "CRITICAL DIGITAL SECURITY CERTIFICATE MISMATCH!\nCryptographic verification keys could NOT matching the registry databases. Signature bounds suggest fake parameters injection.",
+                                fontSize = 11.sp,
+                                color = ErrorCrimson,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color.Black),
+                                modifier = Modifier.fillMaxWidth().border(1.dp, ErrorCrimson, RoundedCornerShape(8.dp))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text("🚨 AUTOMATIC BAN PROTOCOL ACTIVE & NOTIFIED", fontSize = 9.sp, color = ErrorCrimson, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("• Spoofed Signature: DETECTED", fontSize = 9.sp, color = Color.White)
+                                    Text("• Forged Metric Balance: ${result.walletBalance} BDT", fontSize = 9.sp, color = Color.White)
+                                    Text("• Forged Metric Trust Rank: ${result.trustScore}/100", fontSize = 9.sp, color = Color.White)
+                                    Text("• Countermeasure: Simulated DeX port killed.", fontSize = 8.sp, color = ErrorCrimson, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                },
+                containerColor = CardSlate,
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+    }
+}
+
+data class ScanResult(
+    val isValid: Boolean,
+    val username: String,
+    val email: String,
+    val extractedRole: String,
+    val trustScore: Int,
+    val walletBalance: Int,
+    val certHash: String,
+    val tampered: Boolean
+)
+

@@ -9,6 +9,25 @@ class RentRepository(private val rentDao: RentDao) {
     val allReviews: Flow<List<TenantReview>> = rentDao.getAllReviews()
     val allEscrowDeposits: Flow<List<EscrowDeposit>> = rentDao.getAllEscrowDeposits()
     val allManualPayments: Flow<List<ManualPaymentSubmission>> = rentDao.getAllManualPayments()
+    val allUserAccounts: Flow<List<UserAccount>> = rentDao.getAllUserAccounts()
+    val allRentalAgreements: Flow<List<SmartRentalAgreement>> = rentDao.getAllRentalAgreements()
+    val allAuthorizedRatings: Flow<List<AuthorizedRating>> = rentDao.getAllAuthorizedRatings()
+
+    suspend fun insertUserAccount(user: UserAccount) {
+        rentDao.insertUserAccount(user)
+    }
+
+    suspend fun insertRentalAgreement(agreement: SmartRentalAgreement) {
+        rentDao.insertRentalAgreement(agreement)
+    }
+
+    suspend fun deleteRentalAgreement(id: String) {
+        rentDao.deleteRentalAgreement(id)
+    }
+
+    suspend fun insertAuthorizedRating(rating: AuthorizedRating) {
+        rentDao.insertAuthorizedRating(rating)
+    }
 
     suspend fun insertListing(listing: RentListing) {
         rentDao.insertListing(listing)

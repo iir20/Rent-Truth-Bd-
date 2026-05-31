@@ -76,4 +76,28 @@ interface RentDao {
 
     @Query("UPDATE manual_payments SET status = :status WHERE id = :id")
     suspend fun updateManualPaymentStatus(id: Int, status: String)
+
+    // User Accounts Persistence
+    @Query("SELECT * FROM user_accounts")
+    fun getAllUserAccounts(): Flow<List<UserAccount>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUserAccount(user: UserAccount)
+
+    // Custom Stamps & Legal Agreements
+    @Query("SELECT * FROM rental_agreements")
+    fun getAllRentalAgreements(): Flow<List<SmartRentalAgreement>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRentalAgreement(agreement: SmartRentalAgreement)
+
+    @Query("DELETE FROM rental_agreements WHERE id = :id")
+    suspend fun deleteRentalAgreement(id: String)
+
+    // Authorized Behavioral Ratings
+    @Query("SELECT * FROM authorized_ratings")
+    fun getAllAuthorizedRatings(): Flow<List<AuthorizedRating>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAuthorizedRating(rating: AuthorizedRating)
 }
